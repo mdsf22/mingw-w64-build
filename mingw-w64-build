@@ -18,9 +18,9 @@
 
 ROOT_PATH="$HOME/.zeranoe/mingw-w64"
 
-MINGW_W64_BRANCH="v9.x"
+MINGW_W64_BRANCH="v6.x"
 BINUTILS_BRANCH="binutils-2_39-branch"
-GCC_BRANCH="releases/gcc-12"
+GCC_BRANCH="releases/gcc-7"
 
 ENABLE_THREADS="--enable-threads=posix"
 
@@ -88,6 +88,7 @@ execute()
         printf "(%d/%d): %s\n" "$CURRENT_STEP" "$TOTAL_STEPS" "$info_msg"
         CURRENT_STEP=$((CURRENT_STEP + 1))
     fi
+    echo "$@"
     $@ >>"$LOG_FILE" 2>&1 || error_exit "$error_msg, check $LOG_FILE for details"
 }
 
@@ -190,11 +191,53 @@ build()
     execute "($arch): installing MinGW-w64 headers" "" \
         make install
 
+    # build gmp
+    create_dir "$bld_path/gmp"
+    change_dir "$bld_path/gmp"
+    execute "($arch): configuring gmp" "" \
+        "$SRC_PATH/gcc/gmp/configure" --build="$BUILD" \
+        --disable-shared --enable-static --prefix="$bld_path/gmp-build"
+    execute "($arch): installing gmp" "" \
+        make install
+
+    # build mpfr
+    create_dir "$bld_path/mpfr"
+    change_dir "$bld_path/mpfr"
+    execute "($arch): configuring mpfr" "" \
+        "$SRC_PATH/gcc/mpfr/configure" --build="$BUILD" --with-gmp-include="$bld_path/gmp-build/include" \
+         --with-gmp-lib="$bld_path/gmp-build/lib" --prefix="$bld_path/mpfr-build" --disable-shared --enable-static
+    execute "($arch): installing mpfr" "" \
+        make install
+
+    # build mpc
+    create_dir "$bld_path/mpc"
+    change_dir "$bld_path/mpc"
+    execute "($arch): configuring mpc" "" \
+        "$SRC_PATH/gcc/mpc/configure" --build="$BUILD" --with-gmp-include="$bld_path/gmp-build/include" \
+         --with-gmp-lib="$bld_path/gmp-build/lib" --with-mpfr-include="$bld_path/mpfr-build/include" \
+         --with-mpfr-lib="$bld_path/mpfr-build/lib" \
+         --prefix="$bld_path/mpc-build" --disable-shared --enable-static
+    execute "($arch): installing mpc" "" \
+        make install
+
+    # build isl
+    create_dir "$bld_path/isl"
+    change_dir "$bld_path/isl"
+    execute "($arch): configuring isl" "" \
+        "$SRC_PATH/gcc/isl/configure" --build="$BUILD" \
+         --with-gmp-prefix="$bld_path/gmp-build" --prefix="$bld_path/isl-build" --disable-shared --enable-static
+    execute "($arch): installing isl" "" \
+        make install
+
     create_dir "$bld_path/gcc"
     change_dir "$bld_path/gcc"
 
     execute "($arch): configuring GCC" "" \
         "$SRC_PATH/gcc/configure" --target="$host" --disable-shared \
+            --with-gmp="$bld_path/gmp-build"  \
+            --with-mpfr="$bld_path/mpfr-build" \
+            --with-mpc="$bld_path/mpc-build" \
+            --with-isl-lib="$bld_path/isl-build/lib" --with-isl-include="$bld_path/isl-build/include" \
             --enable-static --disable-multilib --prefix="$prefix" \
             --enable-languages=c,c++ --disable-nls $ENABLE_THREADS \
             $i686_dwarf2
